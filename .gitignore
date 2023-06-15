@@ -1,0 +1,14 @@
+*.pyc
+__pycache__/
+
+*.log
+*.swp
+*.swo
+.ipynb_checkpoints/
+
+saved/
+scripts/
+workdir/
+*.ipynb
+
+*.egg-info
