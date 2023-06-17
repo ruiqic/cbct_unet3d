@@ -11,8 +11,8 @@ from monai.transforms import (Compose, ScaleIntensityRanged, NormalizeIntensityd
 from monai.data import CacheDataset, Dataset
 from monai.data.utils import partition_dataset
 
-from monai.data.meta_obj import set_track_meta
-set_track_meta(False)
+#from monai.data.meta_obj import set_track_meta
+#set_track_meta(False)
 
 class NiftiDataset(Dataset):
     def __init__(self, image_files, label_files):
@@ -60,6 +60,9 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
     transforms = Compose([
         # load images from path strings
         LoadImaged(keys=["image", "label"], image_only=True),
+        
+        # Remove metadata
+        EnsureTyped(keys=["image", "label"], track_meta=False),
         
         # add a channel dimension
         EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"),
@@ -138,7 +141,7 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
     return transforms
 
 def makeDataset(image_files, label_files, device, patch_size=[128,128,128], batch_size=2, num_classes=5, 
-                class_sample_ratios=[0.1,0.5,0.2,0.2,0.1], rank=None, world_size=None):
+                class_sample_ratios=[1,5,2,1,1], rank=None, world_size=None):
     
     train_stats = get_data_statistics(image_files, label_files)
     dataset_string = train_stats["data_string"]
