@@ -7,7 +7,8 @@ from cbct_unet3d.model import UNet3D
 from cbct_unet3d.dataset import get_data_statistics
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
-                    checkpoint_path, num_classes=5, unet_channels=[16,32,64,128,256,512]):
+                    checkpoint_path, num_classes=5, unet_channels=[16,32,64,128,256,512],
+                    prelu=False):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
@@ -26,7 +27,8 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
                          NormalizeIntensity(subtrahend=(train_stats["mean"]-train_stats["min"])/train_stats["range"], 
                             divisor=train_stats["std"]/train_stats["range"])])
     
-    network = UNet3D(in_channels=1, num_classes=num_classes, strides=[1,2,2,2,2,2], channels=unet_channels).to(device)
+    network = UNet3D(in_channels=1, num_classes=num_classes, strides=[1,2,2,2,2,2], 
+                     channels=unet_channels, prelu=prelu).to(device)
     network.load_state_dict(torch.load(checkpoint_path))
     network.eval()
     inferer = SlidingWindowInferer(roi_size=(128,128,128), sw_batch_size=4, overlap=0.5, 
