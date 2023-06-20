@@ -59,6 +59,10 @@ def write_files(dst, filenames, pred_logits):
         out_fn = os.path.join(dst, short_fn)
         
         out_pred = pred.argmax(dim=0)
+        
+        # the split background class recombined
+        out_pred[out_pred == 5] = 0
+        
         writer.set_data_array(out_pred, channel_dim=None)
         writer.write(out_fn, verbose=False)
         
