@@ -7,6 +7,7 @@ __pycache__/
 .ipynb_checkpoints/
 
 saved/
+saved_big/
 scripts/
 workdir/
 *.ipynb
