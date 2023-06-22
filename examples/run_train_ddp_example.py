@@ -17,6 +17,7 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel
 from torch.cuda.amp import autocast, GradScaler
 from monai.data import ThreadDataLoader, DataLoader
+from monai.optimizers import Novograd
 from cbct_unet3d.dataset import makeDataset
 from cbct_unet3d.model import UNet3D
 from cbct_unet3d.losses import GeneralizedDiceCELoss
@@ -36,22 +37,22 @@ def train():
     torch.cuda.set_device(device)
     
     # Replace with your save directory
-    save_name = "../saved/exp_example_%s" % (datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    save_name = "../saved/example_ddp_%s" % (datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
     os.makedirs(save_name, exist_ok=True)
     
     logger_train = setup_logger('train_logger', '%s/train.log' % save_name)
 
     # Replace with your directory where the images and labels are
-    image_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/imagesTr"
-    label_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/labelsTr"
+    image_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset104_Jun171/imagesTr"
+    label_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset104_Jun171/labelsTr"
     
     image_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(image_root)))
     label_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(label_root)))
     image_files = [os.path.join(image_root, x) for x in image_fns]
     label_files = [os.path.join(label_root, x) for x in label_fns]
     
-    dataset = makeDataset(image_files, label_files, device=device, 
-                          patch_size=[128,128,128], batch_size=4,
+    dataset = makeDataset(image_files, label_files, device=device, class_sample_ratios=[1,5,2,1,1], 
+                          patch_size=[128,128,128], batch_size=4, num_classes=5,
                           rank=rank, world_size=world_size)
     
     repeats = 2
@@ -61,10 +62,10 @@ def train():
     logger_train.info("%d training volumes"%(len(dataset)))
 
     # SETUP LR AND OTHER PARAMETERS
-    lr = 0.0001
+    lr = 0.003
     weight_decay = 0.001
-    num_epochs = 2
-    save_freq = 2
+    num_epochs = 900
+    save_freq = 50
 
     network = UNet3D(in_channels=1, num_classes=5, strides=[1,2,2,2,2,2], channels=[16,32,64,128,256,512], prelu=True)
     network = network.to(device)
@@ -74,9 +75,9 @@ def train():
     criterion = GeneralizedDiceCELoss(weight=torch.tensor([0.1, 0.6, 0.1, 0.1, 0.1]).to(device))
     
     # can customize optimizer and LR scheduler
-    optimizer = torch.optim.AdamW(network.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=200,
-                                                                     T_mult=2, eta_min=0, last_epoch=-1, verbose=False)
+    optimizer = Novograd(network.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataset)*repeats,
+                                                    epochs=num_epochs)
     scaler = GradScaler()
 
     # Train!
@@ -96,12 +97,13 @@ def train():
             scaler.step(optimizer)
             scaler.update()
             train_loss += x.shape[0] * loss.item()
+            scheduler.step()
         
         if epoch % save_freq == save_freq - 1:
             if rank == 0:
                 torch.save(network.module.state_dict(), "%s/checkpoint_%d.pt" % (save_name, epoch + 1))
 
-        scheduler.step()
+        
 
         print_text = 'Epoch: {}, Training Loss: {:.3f}, Time: {:0.1f}'.format(epoch, train_loss / len(dataset)/repeats,
                                                                               time.time() - epoch_start)
