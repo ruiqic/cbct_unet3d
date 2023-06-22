@@ -28,25 +28,27 @@ def setup_logger(name, log_file, level=logging.INFO):
     return logger
 
 if __name__ == "__main__" :
+    
     # Replace with your save directory
-    save_name = "../saved/exp4n_%s"%(datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    save_name = "../saved/example_%s"%(datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
     os.makedirs(save_name, exist_ok=True)
     logger_train = setup_logger('train_logger', '%s/train.log'%save_name)
 
-    # Replace with your data directories
+    # Replace with your directory where the images and labels are
     image_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/imagesTr"
     label_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/labelsTr"
     image_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(image_root)))
     label_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(label_root)))
     image_files = [os.path.join(image_root, x) for x in image_fns]
     label_files = [os.path.join(label_root, x) for x in label_fns]
-
+    
     device_type = "cuda" if torch.cuda.is_available() else "cpu"
     #device_type = "cpu" # for debugging
     device = torch.device(device_type)
     
     repeats = 2
-    dataset = makeDataset(image_files, label_files, device=device, patch_size=[128,128,128], batch_size=4)
+    dataset = makeDataset(image_files, label_files, device=device, class_sample_ratios=[1,5,2,1,1],
+                          patch_size=[128,128,128], batch_size=4, num_classes=5)
     dataloader = ThreadDataLoader(dataset, num_workers=0, repeats=repeats, buffer_size=4, shuffle=True)
 
     logger_train.info("%d training volumes"%(len(dataset)))
@@ -57,13 +59,11 @@ if __name__ == "__main__" :
     num_epochs = 600
     save_freq = 50
 
-    network = UNet3D(in_channels=1, num_classes=5, strides=[1,2,2,2,2,2], channels=[16,32,64,128,256,512])
+    network = UNet3D(in_channels=1, num_classes=5, strides=[1,2,2,2,2,2], channels=[32,64,128,256,320,320], prelu=True)
     network = network.to(device)
 
-    criterion = GeneralizedDiceCELoss(weight=torch.tensor([0.1, 0.6, 0.1, 0.1, 0.1]).to(device))
-    
-    # can customize optimizer and LR scheduler
-    optimizer = Novograd(network.parameters(), lr=lr)
+    criterion = GeneralizedDiceCELoss(weight=torch.tensor([0.1, 0.5, 0.2, 0.1, 0.1]).to(device))
+    optimizer = torch.optim.AdamW(network.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataset)*repeats, epochs=num_epochs)
     scaler = torch.cuda.amp.GradScaler()
 
