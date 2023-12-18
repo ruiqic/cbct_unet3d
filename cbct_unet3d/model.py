@@ -39,7 +39,7 @@ class UpConvBlock(nn.Module):
 
 
 class UNet3D(nn.Module):
-    def __init__(self, in_channels, num_classes, strides=[1,2,2,2,2,2], channels=[32,64,128,256,320,320], prelu=False):
+    def __init__(self, in_channels, num_classes, strides=[1,2,2,2,2,2], channels=[32,64,128,256,320,320], prelu=False, deep_supervision=True):
         super(UNet3D, self).__init__()
 
         self.num_classes = num_classes
@@ -58,8 +58,11 @@ class UNet3D(nn.Module):
 
         # Final convolutions for deep supervision
         finals = []
-        for i in range(num_stages):
-            finals.append(nn.Conv3d(channels[num_stages-i-1], num_classes, kernel_size=1, bias=True))
+        if deep_supervision:
+            for i in range(num_stages):
+                finals.append(nn.Conv3d(channels[num_stages-i-1], num_classes, kernel_size=1, bias=True))
+        else:
+            finals.append(nn.Conv3d(channels[0], num_classes, kernel_size=1, bias=True))
             
         self.encoders = nn.ModuleList(encoders)
         self.decoders = nn.ModuleList(decoders)
