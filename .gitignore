@@ -8,6 +8,7 @@ __pycache__/
 
 saved/
 saved_big/
+saved_test/
 scripts/
 workdir/
 *.ipynb
