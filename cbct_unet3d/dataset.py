@@ -74,7 +74,7 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
                                            a_max=train_stats["max"], b_min=0, b_max=1, clip=True))
     
     # pad borders of the image
-    transforms.append(BorderPadd(keys=["image", "label"], spatial_border=64, mode="constant", value=0))
+    transforms.append(BorderPadd(keys=["image", "label"], spatial_border=border_pad_size, mode="constant", value=0))
     
     # get class label indices for oversampling
     transforms.append(ClassesToIndicesd(keys="label", indices_postfix="_cls_indices", 

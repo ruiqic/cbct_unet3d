@@ -1,20 +1,17 @@
 import os
 import torch
-from monai.transforms import LoadImage, Compose, ScaleIntensityRange, NormalizeIntensity
+from monai.transforms import LoadImage, Compose, ScaleIntensityRange, NormalizeIntensity, ScaleIntensityRangePercentiles, ScaleIntensityRange
 from monai.inferers import SlidingWindowInferer
 from monai.data import NibabelWriter
 from cbct_unet3d.model import UNet3D
 from cbct_unet3d.dataset import get_data_statistics
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
-                    checkpoint_path, num_classes=5, unet_channels=[16,32,64,128,256,512],
-                    prelu=False):
+                    model, checkpoint_path, zero_mean=True):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
     """
-    
-    
     
     device_type = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_type)
