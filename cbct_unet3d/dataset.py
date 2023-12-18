@@ -50,7 +50,7 @@ class NiftiDataset(Dataset):
     def __getitem__(self, index):
         return self.data[index]
     
-def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sample_ratios, device, zero_mean=True):
+def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sample_ratios, device, zero_mean):
     """
     transform expects path strings.
     loaded image and label should both have shapes of (num_channels, H, W, D)
@@ -140,14 +140,14 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
     return composed_transforms
 
 def makeDataset(image_files, label_files, device, patch_size=[128,128,128], batch_size=2, num_classes=5, 
-                class_sample_ratios=[1,5,2,1,1], rank=None, world_size=None):
+                class_sample_ratios=[1,5,2,1,1], rank=None, world_size=None, zero_mean=False):
     
     train_stats = get_data_statistics(image_files, label_files)
     dataset_string = train_stats["data_string"]
     
     transforms = makeTransforms(train_stats, patch_size=patch_size, batch_size=batch_size, 
                                 num_classes=num_classes, class_sample_ratios=class_sample_ratios, 
-                                device=device)
+                                device=device, zero_mean=zero_mean)
     if rank is not None:
         # must be evenly divisible for DDP!
         data = partition_dataset(data=dataset_string, num_partitions=world_size,
