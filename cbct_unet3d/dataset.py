@@ -50,98 +50,94 @@ class NiftiDataset(Dataset):
     def __getitem__(self, index):
         return self.data[index]
     
-def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sample_ratios, device):
+def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sample_ratios, device, zero_mean=True):
     """
     transform expects path strings.
     loaded image and label should both have shapes of (num_channels, H, W, D)
     """
     initial_crop_size = [2*s for s in patch_size]
+    border_pad_size = max(patch_size) // 2
     
-    transforms = Compose([
-        # load images from path strings
-        LoadImaged(keys=["image", "label"], image_only=True),
-        
-        # Remove metadata
-        EnsureTyped(keys=["image", "label"], track_meta=False),
-        
-        # add a channel dimension
-        EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"),
-        
-        # clip by 0.5 and 99.5 percentiles
-        ScaleIntensityRanged(keys="image", a_min=train_stats["min"], a_max=train_stats["max"], 
-                             b_min=0, b_max=1, clip=True),
-
-        # pad borders of the image
-        BorderPadd(keys=["image", "label"], spatial_border=64, mode="constant", value=0),
-
-        # get class label indices for oversampling
-        ClassesToIndicesd(keys="label", indices_postfix="_cls_indices", num_classes=num_classes, image_key="image", 
-                          image_threshold=0),
-
-        # initial larger crop to 256
-        RandCropByLabelClassesd(keys=["image", "label"], label_key="label", spatial_size=initial_crop_size, 
+    transforms = []
+    
+    # load images from path strings
+    transforms.append(LoadImaged(keys=["image", "label"], image_only=True))
+    
+    # Remove metadata
+    transforms.append(EnsureTyped(keys=["image", "label"], track_meta=False))
+    
+    # add a channel dimension
+    transforms.append(EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"))
+    
+    # clip by 0.5 and 99.5 percentiles
+    transforms.append(ScaleIntensityRanged(keys="image", a_min=train_stats["min"], 
+                                           a_max=train_stats["max"], b_min=0, b_max=1, clip=True))
+    
+    # pad borders of the image
+    transforms.append(BorderPadd(keys=["image", "label"], spatial_border=64, mode="constant", value=0))
+    
+    # get class label indices for oversampling
+    transforms.append(ClassesToIndicesd(keys="label", indices_postfix="_cls_indices", 
+                                        num_classes=num_classes, image_key="image", image_threshold=0))
+    
+    # initial larger crop
+    transforms.append(RandCropByLabelClassesd(keys=["image", "label"], label_key="label", spatial_size=initial_crop_size, 
                                 ratios=class_sample_ratios, num_classes=num_classes, num_samples=batch_size, 
-                                indices_key="label_cls_indices"),
-        
-        # send to device after random transform. Dataset too large to be cached on GPU
-        EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
-
-        # rotation
-        RandRotated(keys=["image", "label"], range_x=3.14, range_y=3.14, range_z=3.14, prob=0.5, 
-                    mode=["bilinear", "nearest"], padding_mode="zeros", dtype=None),
-
-        # scaling and shear
-        RandAffined(keys=["image", "label"], prob=0.5, shear_range=[0.1,0.1,0.1], scale_range=[0.3,0.3,0.3],
-                    mode=["bilinear", "nearest"], padding_mode="zeros"),
-
-        # elastic
-        Rand3DElasticd(keys=["image", "label"], prob=0.2, sigma_range=[3,7], magnitude_range=[50,150],
-                    mode=["bilinear", "nearest"], padding_mode="zeros"),
-        
-        # center crop to final resultion of 128
-        CenterSpatialCropd(keys=["image", "label"], roi_size=patch_size),
-
-        # normalize by mean and std
-        NormalizeIntensityd(keys="image", subtrahend=(train_stats["mean"]-train_stats["min"])/train_stats["range"], 
-                            divisor=train_stats["std"]/train_stats["range"]),
-
-        # gaussian noise
-        RandGaussianNoised(keys="image", prob=0.1, mean=0.0, std=0.1),
-
-        # gaussian blurring
-        RandGaussianSmoothd(keys="image", prob=0.1, sigma_x=(0.5,1), sigma_y=(0.5,1), sigma_z=(0.5,1)),
-
-        # brightness 
-        RandScaleIntensityd(keys="image", prob=0.15, factors=0.25),
-        
-        # contrast
-        #IntensityStatsd
-        #RandScaleIntensityd
-        #ScaleIntensityRange
-        # ask chatgpt
-
-        # simulation of low resolution
-        RandZoomd(keys="image", prob=0.15, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False),
-        Resized(keys="image", spatial_size=patch_size, mode="trilinear"),
-
-        # gamma 
-        RandAdjustContrastd(keys="image", prob=0.15, gamma=(0.7, 1.5)),
-
-        # flip
-        RandAxisFlipd(keys=["image", "label"], prob=0.5),
-        
-        # FOR SWIN UNETR
-        ScaleIntensityRanged(keys="image", a_min=-2, a_max=2, b_min=0, b_max=1, clip=True),
-        
-        # cast to final type
-        CastToTyped(keys=["image", "label"], dtype=[torch.float, torch.long]),
-        
-        # squeeze channel dimension of label
-        SqueezeDimd(keys="label", dim=0)
-
-    ])
+                                indices_key="label_cls_indices"))
     
-    return transforms
+    # send to device after random transform. Dataset too large to be cached on GPU
+    transforms.append(EnsureTyped(keys=["image", "label"], device=device, track_meta=False))
+    
+    # rotation
+    transforms.append(RandRotated(keys=["image", "label"], range_x=3.14, range_y=3.14, range_z=3.14, prob=0.5, 
+                    mode=["bilinear", "nearest"], padding_mode="zeros", dtype=None))
+    
+    # scaling and shear
+    transforms.append(RandAffined(keys=["image", "label"], prob=0.5, shear_range=[0.1,0.1,0.1], scale_range=[0.3,0.3,0.3],
+                    mode=["bilinear", "nearest"], padding_mode="zeros"))
+    
+    # elastic
+    transforms.append(Rand3DElasticd(keys=["image", "label"], prob=0.2, sigma_range=[3,7], magnitude_range=[50,150],
+                    mode=["bilinear", "nearest"], padding_mode="zeros"))
+    
+    # center crop to final resultion 
+    transforms.append(CenterSpatialCropd(keys=["image", "label"], roi_size=patch_size))
+    
+    # normalize by mean and std
+    transforms.append(NormalizeIntensityd(keys="image", subtrahend=(train_stats["mean"]-train_stats["min"])/train_stats["range"], 
+                            divisor=train_stats["std"]/train_stats["range"]))
+    
+    # gaussian noise
+    transforms.append(RandGaussianNoised(keys="image", prob=0.1, mean=0.0, std=0.1))
+    
+    # gaussian blurring
+    transforms.append(RandGaussianSmoothd(keys="image", prob=0.1, sigma_x=(0.5,1), sigma_y=(0.5,1), sigma_z=(0.5,1)))
+    
+    # brightness 
+    transforms.append(RandScaleIntensityd(keys="image", prob=0.15, factors=0.25))
+    
+    # simulation of low resolution
+    transforms.append(RandZoomd(keys="image", prob=0.15, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False),
+        Resized(keys="image", spatial_size=patch_size, mode="trilinear"))
+    
+    # gamma 
+    transforms.append(RandAdjustContrastd(keys="image", prob=0.15, gamma=(0.7, 1.5)))
+    
+    # flip
+    transforms.append(RandAxisFlipd(keys=["image", "label"], prob=0.5))
+    
+    if not zero_mean:
+        # Scale input to range 0-1
+        transforms.append(ScaleIntensityRanged(keys="image", a_min=-2, a_max=2, b_min=0, b_max=1, clip=True))
+    
+    # cast to final type
+    transforms.append(CastToTyped(keys=["image", "label"], dtype=[torch.float, torch.long]))
+    
+    # squeeze channel dimension of label
+    transforms.append(SqueezeDimd(keys="label", dim=0))
+    
+    composed_transforms = Compose(transforms)
+    return composed_transforms
 
 def makeDataset(image_files, label_files, device, patch_size=[128,128,128], batch_size=2, num_classes=5, 
                 class_sample_ratios=[1,5,2,1,1], rank=None, world_size=None):
