@@ -39,7 +39,7 @@ class UpConvBlock(nn.Module):
 
 
 class UNet3D(nn.Module):
-    def __init__(self, in_channels, num_classes, strides=[1,2,2,2,2,2], channels=[32,64,128,256,320,320], prelu=False, deep_supervision=True):
+    def __init__(self, in_channels, num_classes, strides=[1,2,2,2,2,2], channels=[32,64,128,256,320,320], prelu=False, deep_supervision=False):
         super(UNet3D, self).__init__()
 
         self.num_classes = num_classes
@@ -68,7 +68,7 @@ class UNet3D(nn.Module):
         self.decoders = nn.ModuleList(decoders)
         self.finals = nn.ModuleList(finals)
 
-    def forward(self, x, deep_supervision=True):
+    def forward(self, x, deep_supervision=False):
         
         xs = []
         for encoder in self.encoders:

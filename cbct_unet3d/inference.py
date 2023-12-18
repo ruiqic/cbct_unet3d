@@ -7,7 +7,7 @@ from cbct_unet3d.model import UNet3D
 from cbct_unet3d.dataset import get_data_statistics
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
-                    model, checkpoint_path, zero_mean=True):
+                    model, checkpoint_path, zero_mean=True, patch_size=[128,128,128]):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
@@ -18,17 +18,20 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
     
     train_stats = get_data_statistics(train_image_files, train_label_files)
     
-    transform = Compose([LoadImage(image_only=True, ensure_channel_first=True),
+    transforms = [LoadImage(image_only=True, ensure_channel_first=True),
                          ScaleIntensityRange(a_min=train_stats["min"], a_max=train_stats["max"], 
                              b_min=0, b_max=1, clip=True),
                          NormalizeIntensity(subtrahend=(train_stats["mean"]-train_stats["min"])/train_stats["range"], 
-                            divisor=train_stats["std"]/train_stats["range"])])
+                            divisor=train_stats["std"]/train_stats["range"])]
+    if not zero_mean:
+        transforms.append(ScaleIntensityRange(a_min=-2, a_max=2, b_min=0, b_max=1, clip=True))
     
-    network = UNet3D(in_channels=1, num_classes=num_classes, strides=[1,2,2,2,2,2], 
-                     channels=unet_channels, prelu=prelu).to(device)
+    transform = Compose(transforms)
+    
+    network = model.to(device)
     network.load_state_dict(torch.load(checkpoint_path))
     network.eval()
-    inferer = SlidingWindowInferer(roi_size=(128,128,128), sw_batch_size=4, overlap=0.5, 
+    inferer = SlidingWindowInferer(roi_size=patch_size, sw_batch_size=4, overlap=0.5, 
                                    mode="gaussian", sigma_scale=0.125, sw_device=device, 
                                    device="cpu", cache_roi_weight_map=True, progress=False)
     
@@ -37,7 +40,7 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
     for test_fn in test_image_files:
         data = transform(test_fn).unsqueeze(0).to(device)
         with torch.no_grad():
-            pred = inferer(inputs=data, network=lambda x: network(x, deep_supervision=False))
+            pred = inferer(inputs=data, network=network)
             pred_logits.append(pred.squeeze(0))
     
     return pred_logits
