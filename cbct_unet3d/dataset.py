@@ -7,7 +7,7 @@ from monai.transforms import (Compose, ScaleIntensityRanged, NormalizeIntensityd
                               CenterSpatialCropd, RandGaussianNoised, RandGaussianSmoothd, 
                               RandAdjustContrastd, RandScaleIntensityd, Rand3DElasticd,
                               RandAxisFlipd, RandZoomd, Resized, CastToTyped, SqueezeDimd,
-                              ToDeviced, LoadImaged, EnsureChannelFirstd, EnsureTyped)
+                              ToDeviced, LoadImaged, EnsureChannelFirstd, EnsureTyped, ScaleIntensityRangePercentilesd)
 from monai.data import CacheDataset, Dataset
 from monai.data.utils import partition_dataset
 
@@ -52,8 +52,8 @@ class NiftiDataset(Dataset):
     
 def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sample_ratios, device):
     """
-    Expects data = {"image" : image, "label": label}
-    image and label should both have shapes of (num_channels, H, W, D)
+    transform expects path strings.
+    loaded image and label should both have shapes of (num_channels, H, W, D)
     """
     initial_crop_size = [2*s for s in patch_size]
     
@@ -129,6 +129,9 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
 
         # flip
         RandAxisFlipd(keys=["image", "label"], prob=0.5),
+        
+        # FOR SWIN UNETR
+        ScaleIntensityRanged(keys="image", a_min=-2, a_max=2, b_min=0, b_max=1, clip=True),
         
         # cast to final type
         CastToTyped(keys=["image", "label"], dtype=[torch.float, torch.long]),
