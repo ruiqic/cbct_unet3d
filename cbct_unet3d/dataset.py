@@ -117,8 +117,8 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
     transforms.append(RandScaleIntensityd(keys="image", prob=0.15, factors=0.25))
     
     # simulation of low resolution
-    transforms.append(RandZoomd(keys="image", prob=0.15, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False),
-        Resized(keys="image", spatial_size=patch_size, mode="trilinear"))
+    transforms.append(RandZoomd(keys="image", prob=0.15, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False))
+    transforms.append(Resized(keys="image", spatial_size=patch_size, mode="trilinear"))
     
     # gamma 
     transforms.append(RandAdjustContrastd(keys="image", prob=0.15, gamma=(0.7, 1.5)))
