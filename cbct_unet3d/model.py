@@ -46,20 +46,24 @@ class UNet3D(nn.Module):
         num_stages = len(strides) - 1
 
         # Encoder
-        self.encoders = [ConvBlock(in_channels, channels[0], prelu, stride=strides[0])]
+        encoders = [ConvBlock(in_channels, channels[0], prelu, stride=strides[0])]
         for i in range(num_stages):
-            self.encoders.append(ConvBlock(channels[i], channels[i+1], prelu, stride=strides[i+1]))
+            encoders.append(ConvBlock(channels[i], channels[i+1], prelu, stride=strides[i+1]))
 
         # Decoder
-        self.decoders = []
+        decoders = []
         for i in range(num_stages):
-            self.decoders.append(UpConvBlock(channels[num_stages-i], channels[num_stages-i-1], 
+            decoders.append(UpConvBlock(channels[num_stages-i], channels[num_stages-i-1], 
                                              prelu, kernel_size=strides[num_stages-i], stride=strides[num_stages-i]))
 
         # Final convolutions for deep supervision
-        self.finals = []
+        finals = []
         for i in range(num_stages):
-            self.finals.append(nn.Conv3d(channels[num_stages-i-1], num_classes, kernel_size=1, bias=True))
+            finals.append(nn.Conv3d(channels[num_stages-i-1], num_classes, kernel_size=1, bias=True))
+            
+        self.encoders = nn.ModuleList(encoders)
+        self.decoders = nn.ModuleList(decoders)
+        self.finals = nn.ModuleList(finals)
 
     def forward(self, x, deep_supervision=True):
         
