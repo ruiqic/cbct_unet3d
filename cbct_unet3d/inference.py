@@ -7,7 +7,8 @@ from cbct_unet3d.model import UNet3D
 from cbct_unet3d.dataset import get_data_statistics
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
-                    model, checkpoint_path, zero_mean=True, patch_size=[128,128,128]):
+                    model, checkpoint_path, zero_mean=True, patch_size=[128,128,128],
+                    overlap=0.5, mode="gaussian", sigma_scale=0.125):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
@@ -31,8 +32,8 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
     network = model.to(device)
     network.load_state_dict(torch.load(checkpoint_path))
     network.eval()
-    inferer = SlidingWindowInferer(roi_size=patch_size, sw_batch_size=4, overlap=0.5, 
-                                   mode="gaussian", sigma_scale=0.125, sw_device=device, 
+    inferer = SlidingWindowInferer(roi_size=patch_size, sw_batch_size=4, overlap=overlap, 
+                                   mode=mode, sigma_scale=sigma_scale, sw_device=device, 
                                    device="cpu", cache_roi_weight_map=True, progress=False)
     
     pred_logits = []
