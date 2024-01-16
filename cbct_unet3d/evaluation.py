@@ -1,7 +1,9 @@
+import torch
 import numpy as np
 from skimage import measure
-from typing import Iterable
+from typing import Iterable, Union
 from collections import namedtuple
+from torchmetrics.classification import MulticlassF1Score
 
 PrecisonAndRecall = namedtuple("PrecisionAndRecall", ["precision", "recall"])
 DetectionScore = namedtuple("DetectionScore", ["detected", "missed", "false_lesion"])
@@ -41,6 +43,12 @@ def get_detection_score(gt: np.ndarray, pred: np.ndarray, iou_threshold=0.0) -> 
 def get_precision_recall(gts: Iterable[np.ndarray], 
                          preds: Iterable[np.ndarray], 
                          iou=0.0) -> PrecisonAndRecall:
+    """
+    Given an iterable of ground truths and an iterable of predictions 
+    in the same order, calcualtes the precision and recall scores with 
+    the specified IoU threshold. The ground truth and predicted lesion 
+    must meet the IoU threshold to be counted as detected. 
+    """
     tp = fp = fn = 0
     for gt, pred in zip(gts, preds):
         detection_score = get_detection_score(gt, pred, iou_threshold=iou)
@@ -50,4 +58,22 @@ def get_precision_recall(gts: Iterable[np.ndarray],
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     return PrecisonAndRecall(precision, recall)
+
+def calc_dice_scores(gts: Iterable[Union[np.ndarray, torch.Tensor]], 
+                    preds: Iterable[Union[np.ndarray, torch.Tensor]]) -> np.ndarray:
+    """
+    Given an iterable of ground truths and an iterable of predictions 
+    in the same order, calcualtes the pixel-level dice scores 
+    for the 5 classes for each volume. 
+    """
+    scores = []
+    dice_scorer = MulticlassF1Score(num_classes=5, average=None)
+    for gt, pred in zip(gts, preds):
+        if isinstance(gt, np.ndarray):
+            gt = torch.from_numpy(gt)
+        if isinstance(pred, np.ndarray):
+            pred = torch.from_numpy(pred)
+        score = dice_scorer(pred, gt)
+        scores.append(score.numpy())
+    return np.asarray(scores)
 

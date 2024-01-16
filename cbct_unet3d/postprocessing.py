@@ -16,7 +16,6 @@ def filter_small_lesions(img: np.ndarray, threshold=200):
     return new_img
 
 def filter_far_and_small_lesions(img: np.ndarray, dist_threshold=10, size_threshold=200):
-    # postprocessing
     new_img = img.copy()
     bone_distance = distance_transform(img, target_label=3)
     teeth_distance = distance_transform(img, target_label=4)
