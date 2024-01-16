@@ -50,10 +50,10 @@ def sophisticated_filter_lesions(img: np.ndarray):
     while keeping high recall.
     """
     new_img = img.copy()
-    distance_bg = distance_transform(lab, target_label=0)
-    distance_bone = distance_transform(lab, target_label=3)
-    distance_teeth = distance_transform(lab, target_label=4)
-    lesion_label = measure.label(lab == 1)
+    distance_bg = distance_transform(new_img, target_label=0)
+    distance_bone = distance_transform(new_img, target_label=3)
+    distance_teeth = distance_transform(new_img, target_label=4)
+    lesion_label = measure.label(new_img == 1)
     rp = measure.regionprops(lesion_label)
     for i in range(lesion_label.max()):
         lesion_dist_bg = distance_bg[lesion_label==i+1]
