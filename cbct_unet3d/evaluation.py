@@ -6,10 +6,10 @@ from collections import namedtuple
 PrecisonAndRecall = namedtuple("PrecisionAndRecall", ["precision", "recall"])
 DetectionScore = namedtuple("DetectionScore", ["detected", "missed", "false_lesion"])
 
-def confusion_table(gt: np.ndarray, pred: np.ndarray, iou_threshold=0.0) -> DetectionScore:
+def get_detection_score(gt: np.ndarray, pred: np.ndarray, iou_threshold=0.0) -> DetectionScore:
     """
     Given ground truth and prediction volume : np.ndarray, 
-    get the number of TP (detected), FN (missed), and FP (false) lesions
+    get the number of TP (detected), FN (missed), and FP (false_lesion) in a named tuple
 
     Use postprocessed ground truth to avoid tiny lesions being counted.
     """
@@ -43,7 +43,7 @@ def get_precision_recall(gts: Iterable[np.ndarray],
                          iou=0.0) -> PrecisonAndRecall:
     tp = fp = fn = 0
     for gt, pred in zip(gts, preds):
-        detection_score = confusion_table(gt, pred, iou_threshold=iou)
+        detection_score = get_detection_score(gt, pred, iou_threshold=iou)
         tp += detection_score.detected
         fp += detection_score.false_lesion
         fn += detection_score.missed
