@@ -8,7 +8,7 @@ from cbct_unet3d.dataset import get_data_statistics
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
                     model, checkpoint_path, zero_mean=True, patch_size=[128,128,128],
-                    overlap=0.5, mode="gaussian", sigma_scale=0.125):
+                    overlap=0.5, mode="gaussian", sigma_scale=0.125, return_inputs=False):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
@@ -37,13 +37,17 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
                                    device="cpu", cache_roi_weight_map=True, progress=False)
     
     pred_logits = []
+    inputs = []
     
     for test_fn in test_image_files:
         data = transform(test_fn).unsqueeze(0).to(device)
         with torch.no_grad():
             pred = inferer(inputs=data, network=network)
             pred_logits.append(pred.squeeze(0))
+            inputs.append(data.cpu())
     
+    if return_inputs:
+        return inputs, pred_logits
     return pred_logits
 
 
