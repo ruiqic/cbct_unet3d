@@ -5,10 +5,12 @@ from monai.inferers import SlidingWindowInferer
 from monai.data import NibabelWriter
 from cbct_unet3d.model import UNet3D
 from cbct_unet3d.dataset import get_data_statistics
+from crfseg import CRF
 
 def sliding_predict(train_image_files, train_label_files, test_image_files, 
                     model, checkpoint_path, zero_mean=True, patch_size=[128,128,128],
-                    overlap=0.5, mode="gaussian", sigma_scale=0.125, return_inputs=False):
+                    overlap=0.5, mode="gaussian", sigma_scale=0.125, return_inputs=False,
+                    crf=False):
     """
     file list of training images and labels needed to extract image statistics
     such as mean, std of foreground pixel intensities.
@@ -31,6 +33,8 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
     
     network = model.to(device)
     network.load_state_dict(torch.load(checkpoint_path))
+    if crf:
+        network = torch.nn.Sequential(network, CRF(n_spatial_dims=3))
     network.eval()
     inferer = SlidingWindowInferer(roi_size=patch_size, sw_batch_size=4, overlap=overlap, 
                                    mode=mode, sigma_scale=sigma_scale, sw_device=device, 
