@@ -55,7 +55,7 @@ def sliding_predict(train_image_files, train_label_files, test_image_files,
     return pred_logits
 
 
-def write_files(dst, filenames, pred_logits):
+def write_files(dst, filenames, pred_logits, argmax=True):
     """
     filenames expect lists of full path.
     Only the last part is used as the filename
@@ -67,11 +67,12 @@ def write_files(dst, filenames, pred_logits):
         short_fn = fn.split("/")[-1]
         out_fn = os.path.join(dst, short_fn)
         
-        out_pred = pred.argmax(dim=0)
-        
-        # the split background class recombined
-        out_pred[out_pred == 5] = 0
-        
-        writer.set_data_array(out_pred, channel_dim=None)
+        if argmax:
+            out_pred = pred.argmax(dim=0)
+            # the split background class recombined
+            out_pred[out_pred == 5] = 0
+            writer.set_data_array(out_pred, channel_dim=None)
+        else:
+            writer.set_data_array(pred, channel_dim=0)
         writer.write(out_fn, verbose=False)
         

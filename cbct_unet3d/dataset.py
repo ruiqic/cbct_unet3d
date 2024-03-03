@@ -1,13 +1,15 @@
 import torch
 import numpy as np
 import nibabel as nib
+from typing import Optional
 from functools import lru_cache
 from monai.transforms import (Compose, ScaleIntensityRanged, NormalizeIntensityd, ClassesToIndicesd, 
                               RandCropByLabelClassesd, BorderPadd, RandRotated, RandAffined,
                               CenterSpatialCropd, RandGaussianNoised, RandGaussianSmoothd, 
                               RandAdjustContrastd, RandScaleIntensityd, Rand3DElasticd,
                               RandAxisFlipd, RandZoomd, Resized, CastToTyped, SqueezeDimd,
-                              ToDeviced, LoadImaged, EnsureChannelFirstd, EnsureTyped, ScaleIntensityRangePercentilesd)
+                              ToDeviced, LoadImaged, EnsureChannelFirstd, EnsureTyped, ScaleIntensityRangePercentilesd,
+                              Lambdad)
 from monai.data import CacheDataset, Dataset
 from monai.data.utils import partition_dataset
 
@@ -36,6 +38,40 @@ class NiftiDataset(Dataset):
             }
             self.data.append(d)
             fg_pixels_list.append(image[label != 0])
+            
+        foreground_pixels = np.concatenate(fg_pixels_list, axis=None)
+        self.mean = np.mean(foreground_pixels)
+        self.std = np.std(foreground_pixels)
+        self.min = np.percentile(foreground_pixels, 0.5)
+        self.max = np.percentile(foreground_pixels, 99.5)
+        self.range = self.max - self.min
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+    
+class NiftiUnlabeledDataset(Dataset):
+    def __init__(self, image_files):
+        
+        self.data = []
+        self.data_string = []
+        
+        fg_pixels_list = []
+        
+        for image_fn in image_files:
+            self.data_string.append({"image":image_fn})
+
+            # expects the data to not have a channel dimension
+            image = nib.load(image_fn).get_fdata()
+            
+            d = {
+                "image" : torch.from_numpy(image).float().unsqueeze(0), 
+            }
+            self.data.append(d)
+            bg_intensity = image.min()
+            fg_pixels_list.append(image[image != bg_intensity])
             
         foreground_pixels = np.concatenate(fg_pixels_list, axis=None)
         self.mean = np.mean(foreground_pixels)
@@ -139,6 +175,101 @@ def makeTransforms(train_stats, patch_size, batch_size, num_classes, class_sampl
     composed_transforms = Compose(transforms)
     return composed_transforms
 
+def makeUnlabeledTransforms(train_stats, patch_size, batch_size, device, zero_mean):
+    """
+    transform expects path strings.
+    loaded image and label should both have shapes of (num_channels, H, W, D)
+    """
+    initial_crop_size = [2*s for s in patch_size]
+    border_pad_size = max(patch_size) // 2
+    
+    transforms = []
+    
+    # load images from path strings
+    transforms.append(LoadImaged(keys=["image1", "image2", "label"], image_only=True))
+    
+    # Remove metadata
+    transforms.append(EnsureTyped(keys=["image1", "image2", "label"], track_meta=False))
+    
+    # add a channel dimension
+    transforms.append(EnsureChannelFirstd(keys=["image1", "image2", "label"], channel_dim="no_channel"))
+    
+    # clip by 0.5 and 99.5 percentiles
+    transforms.append(ScaleIntensityRanged(keys=["image1", "image2", "label"], a_min=train_stats["min"], 
+                                           a_max=train_stats["max"], b_min=0, b_max=1, clip=True))
+    
+    # pad borders of the image
+    transforms.append(BorderPadd(keys=["image1", "image2", "label"], spatial_border=border_pad_size, mode="constant", value=0))
+    
+    # assume intensity > 0.1 should be foreground
+    transforms.append(Lambdad(keys="label", func=lambda x: (x>0.1).int()))
+    
+    # get class label indices for oversampling
+    transforms.append(ClassesToIndicesd(keys="label", indices_postfix="_cls_indices", num_classes=2))
+        
+    # initial larger crop
+    transforms.append(RandCropByLabelClassesd(keys=["image1", "image2"], label_key="label", spatial_size=initial_crop_size, 
+                                ratios=[0,1], num_classes=2, num_samples=batch_size, 
+                                indices_key="label_cls_indices"))
+    
+    # send to device after random transform. Dataset too large to be cached on GPU
+    transforms.append(EnsureTyped(keys=["image1", "image2"], device=device, track_meta=False))
+    
+    # rotation
+    transforms.append(RandRotated(keys=["image1", "image2"], range_x=3.14, range_y=3.14, range_z=3.14, prob=0.5, 
+                    mode=["bilinear", "bilinear"], padding_mode="zeros", dtype=None))
+    
+    # scaling and shear
+    transforms.append(RandAffined(keys=["image1", "image2"], prob=0.5, shear_range=[0.1,0.1,0.1], scale_range=[0.3,0.3,0.3],
+                    mode=["bilinear", "bilinear"], padding_mode="zeros"))
+    
+    # elastic
+    transforms.append(Rand3DElasticd(keys=["image1", "image2"], prob=0.2, sigma_range=[3,7], magnitude_range=[50,150],
+                    mode=["bilinear", "bilinear"], padding_mode="zeros"))
+    
+    # center crop to final resultion 
+    transforms.append(CenterSpatialCropd(keys=["image1", "image2"], roi_size=patch_size))
+    
+    # normalize by mean and std
+    transforms.append(NormalizeIntensityd(keys=["image1", "image2"], subtrahend=(train_stats["mean"]-train_stats["min"])/train_stats["range"], 
+                            divisor=train_stats["std"]/train_stats["range"]))
+
+    # flip
+    transforms.append(RandAxisFlipd(keys=["image1", "image2"], prob=0.5))
+    
+    # gaussian noise
+    transforms.append(RandGaussianNoised(keys="image1", prob=0.4, mean=0.0, std=0.1))
+    transforms.append(RandGaussianNoised(keys="image2", prob=0.4, mean=0.0, std=0.1))
+    
+    # gaussian blurring
+    transforms.append(RandGaussianSmoothd(keys="image1", prob=0.4, sigma_x=(0.5,1), sigma_y=(0.5,1), sigma_z=(0.5,1)))
+    transforms.append(RandGaussianSmoothd(keys="image2", prob=0.4, sigma_x=(0.5,1), sigma_y=(0.5,1), sigma_z=(0.5,1)))
+    
+    # brightness 
+    transforms.append(RandScaleIntensityd(keys="image1", prob=0.4, factors=0.25))
+    transforms.append(RandScaleIntensityd(keys="image2", prob=0.4, factors=0.25))
+    
+    # simulation of low resolution
+    transforms.append(RandZoomd(keys="image1", prob=0.4, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False))
+    transforms.append(Resized(keys="image1", spatial_size=patch_size, mode="trilinear"))
+    transforms.append(RandZoomd(keys="image2", prob=0.4, min_zoom=0.5, max_zoom=1.0, mode="nearest", keep_size=False))
+    transforms.append(Resized(keys="image2", spatial_size=patch_size, mode="trilinear"))
+    
+    # gamma 
+    transforms.append(RandAdjustContrastd(keys="image1", prob=0.4, gamma=(0.7, 1.5)))
+    transforms.append(RandAdjustContrastd(keys="image2", prob=0.4, gamma=(0.7, 1.5)))
+    
+    
+    if not zero_mean:
+        # Scale input to range 0-1
+        transforms.append(ScaleIntensityRanged(keys=["image1", "image2"], a_min=-2, a_max=2, b_min=0, b_max=1, clip=True))
+    
+    # cast to final type
+    transforms.append(CastToTyped(keys=["image1", "image2"], dtype=[torch.float, torch.float]))
+    
+    composed_transforms = Compose(transforms)
+    return composed_transforms
+
 def makeDataset(image_files, label_files, device, patch_size=[128,128,128], batch_size=2, num_classes=5, 
                 class_sample_ratios=[1,5,2,1,1], rank=None, world_size=None, zero_mean=False):
     
@@ -159,16 +290,40 @@ def makeDataset(image_files, label_files, device, patch_size=[128,128,128], batc
     #dataset = Dataset(data, transforms)
     return dataset
 
+def makePiModelDataset(image_files, label_files, unlabeled_image_files, device, patch_size=[128,128,128], 
+                        batch_size=2, num_classes=5, class_sample_ratios=[1,5,2,1,1], zero_mean=False):
+    
+    train_stats = get_data_statistics(image_files + unlabeled_image_files)
+    labeled_string_ds = list(map(lambda x: {"image":x[0], "label":x[1]}, zip(image_files, label_files)))
+    unlabeled_pair_string_ds = list(map(lambda im: {"image1":im, "image2":im, "label":im}, unlabeled_image_files))
+        
+    labeled_transforms = makeTransforms(train_stats, patch_size=patch_size, batch_size=batch_size, 
+                                        num_classes=num_classes, class_sample_ratios=class_sample_ratios, 
+                                        device=device, zero_mean=zero_mean)
+    unlabeled_transforms = makeUnlabeledTransforms(train_stats, patch_size=patch_size, batch_size=batch_size, 
+                                                   device=device, zero_mean=zero_mean)
 
-def get_data_statistics(image_files, label_files):
+    labeled_dataset = CacheDataset(labeled_string_ds, labeled_transforms, num_workers=6, copy_cache=False, runtime_cache=True)
+    unlabeled_dataset = CacheDataset(unlabeled_pair_string_ds, unlabeled_transforms, num_workers=6, copy_cache=False, runtime_cache=True)
+    #dataset = Dataset(data, transforms)
+    return labeled_dataset, unlabeled_dataset
+
+
+def get_data_statistics(image_files, label_files=None):
     """
     transform to hashable inputs for caching purposes
     """
-    return get_data_statistics_hashable_wrapper(tuple(image_files), tuple(label_files))
+    if label_files is None:
+        return get_data_statistics_hashable_wrapper(tuple(image_files), None)
+    else:
+        return get_data_statistics_hashable_wrapper(tuple(image_files), tuple(label_files))
 
 @lru_cache(maxsize=2)
-def get_data_statistics_hashable_wrapper(image_files_tuple, label_files_tuple):
-    niftiDataset = NiftiDataset(image_files_tuple, label_files_tuple)
+def get_data_statistics_hashable_wrapper(image_files_tuple, label_files_tuple: Optional[tuple]):
+    if label_files_tuple is None:
+        niftiDataset = NiftiUnlabeledDataset(image_files_tuple)
+    else:
+        niftiDataset = NiftiDataset(image_files_tuple, label_files_tuple)
     d = {"mean": niftiDataset.mean,
          "std" : niftiDataset.std,
          "min" : niftiDataset.min,
