@@ -35,8 +35,9 @@ if __name__ == "__main__" :
     logger_train = setup_logger('train_logger', '%s/train.log'%save_name)
 
     # Replace with your directory where the images and labels are
-    image_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/imagesTr"
-    label_root = "/storage/home/hhive1/rchen438/data/nnunet/nnUNet_raw/Dataset102_MarDentalAll/labelsTr"
+    dataset_root = os.environ.get("DEFAULT_CBCT_DATASET_PATH")
+    image_root = os.path.join(dataset_root, "imagesTr")
+    label_root = os.path.join(dataset_root, "labelsTr")
     image_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(image_root)))
     label_fns = sorted(filter(lambda x: x.endswith(".nii.gz"), os.listdir(label_root)))
     image_files = [os.path.join(image_root, x) for x in image_fns]
